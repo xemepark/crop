@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<title>相片裁切輸出系統</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel-2: #1f232c;
+    --border: #2a2f3a;
+    --text: #e4e6eb;
+    --muted: #8a93a6;
+    --accent: #d97706;
+    --accent-hover: #f59e0b;
+    --danger: #ef4444;
+  }
+  html, body { height: 100%; font-family: 'Noto Sans TC', -apple-system, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); }
+  body { display: flex; flex-direction: column; }
+
+  header {
+    padding: 14px 22px; background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 24px;
+  }
+  header h1 { font-size: 16px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase; }
+  header h1 span { color: var(--accent); }
+
+  .toolbar { display: flex; gap: 12px; align-items: center; flex: 1; }
+  .template-group {
+    display: flex; background: var(--panel-2); border-radius: 6px;
+    padding: 3px; border: 1px solid var(--border);
+  }
+  .template-btn {
+    padding: 7px 16px; border: none; background: transparent;
+    color: var(--muted); cursor: pointer; border-radius: 4px;
+    font-size: 13px; font-weight: 500; transition: all .15s; font-family: inherit;
+  }
+  .template-btn.active { background: var(--accent); color: #fff; }
+  .template-btn:not(.active):hover { color: var(--text); }
+
+  .btn {
+    padding: 8px 16px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--panel-2); color: var(--text); cursor: pointer;
+    font-size: 13px; font-weight: 500; transition: all .15s;
+    font-family: inherit; display: inline-flex; align-items: center; gap: 6px;
+  }
+  .btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); color: #fff; }
+  .btn.danger-ghost:hover:not(:disabled) { border-color: var(--danger); color: var(--danger); }
+  .btn.sm { padding: 5px 10px; font-size: 12px; }
+
+  .status { color: var(--muted); font-size: 12px; letter-spacing: .5px; }
+  .status b { color: var(--text); }
+
+  main {
+    flex: 1; padding: 22px; overflow: auto;
+    background: radial-gradient(circle at 1px 1px, rgba(255,255,255,.03) 1px, transparent 0);
+    background-size: 20px 20px;
+  }
+
+  #dropZone {
+    min-height: calc(100% - 4px);
+    border: 2px dashed var(--border);
+    border-radius: 10px; padding: 18px; transition: all .2s;
+  }
+  #dropZone.dragover { border-color: var(--accent); background: rgba(217, 119, 6, .06); }
+  #dropZone.empty {
+    display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 14px; color: var(--muted);
+  }
+  #dropZone.empty .hint-icon {
+    width: 64px; height: 64px; border: 2px dashed var(--border);
+    border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    font-size: 28px;
+  }
+  #dropZone.empty .hint-title { font-size: 16px; color: var(--text); letter-spacing: 1px; }
+  #dropZone.empty .hint-sub { font-size: 13px; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 18px;
+  }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 8px; overflow: hidden; transition: border-color .15s;
+    position: relative;
+  }
+  .card:hover { border-color: var(--accent); }
+
+  .card .thumb-wrap {
+    background: #0a0b0f;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; position: relative;
+    aspect-ratio: 5 / 7;
+  }
+  .card.size-6x8 .thumb-wrap { aspect-ratio: 6 / 8; }
+  .card canvas { max-width: 100%; max-height: 100%; display: block; }
+
+  .card .meta {
+    padding: 9px 12px;
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 8px;
+    border-top: 1px solid var(--border); background: var(--panel-2);
+  }
+  .card .filename {
+    font-size: 12px; color: var(--muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1;
+  }
+  .card .remove {
+    background: none; border: none; color: var(--muted);
+    cursor: pointer; padding: 4px; font-size: 16px; line-height: 1; border-radius: 4px;
+  }
+  .card .remove:hover { color: var(--danger); background: rgba(239,68,68,.1); }
+
+  .card .badge {
+    position: absolute; top: 8px; left: 8px;
+    background: rgba(0,0,0,.6); backdrop-filter: blur(4px);
+    color: #fff; font-size: 10px; padding: 3px 7px; border-radius: 3px;
+    letter-spacing: .5px; font-weight: 500;
+  }
+  .card .rotated-badge {
+    position: absolute; top: 8px; right: 8px;
+    background: var(--accent); color: #fff;
+    font-size: 10px; padding: 3px 7px; border-radius: 3px;
+    letter-spacing: .5px; font-weight: 500;
+  }
+  .card .dbl-hint {
+    position: absolute; bottom: 8px; right: 8px;
+    background: rgba(0,0,0,.55); backdrop-filter: blur(4px);
+    color: #fff; font-size: 10px; padding: 3px 7px; border-radius: 3px;
+    opacity: 0; transition: opacity .2s;
+  }
+  .card:hover .dbl-hint { opacity: 1; }
+
+  /* Modal */
+  .modal {
+    position: fixed; inset: 0; background: rgba(0,0,0,.82);
+    display: none; align-items: center; justify-content: center;
+    z-index: 100; padding: 20px; backdrop-filter: blur(8px);
+  }
+  .modal.active { display: flex; }
+  .modal-inner {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 20px;
+    width: min(1100px, 100%); max-height: 95vh;
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  .modal-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding-bottom: 14px; border-bottom: 1px solid var(--border);
+  }
+  .modal-header h2 { font-size: 15px; font-weight: 600; letter-spacing: 1px; }
+  .modal-header h2 .sub { color: var(--muted); font-weight: 400; margin-left: 10px; font-size: 12px; }
+
+  .crop-stage {
+    background: #0a0b0f; border-radius: 8px; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    position: relative; user-select: none;
+    height: min(65vh, 640px);
+  }
+  #cropCanvas { display: block; cursor: grab; touch-action: none; }
+  #cropCanvas.grabbing { cursor: grabbing; }
+
+  .crop-controls {
+    display: flex; gap: 14px; align-items: center;
+    padding: 4px 4px 0 4px; flex-wrap: wrap;
+  }
+  .ctrl {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--panel-2); border: 1px solid var(--border);
+    padding: 8px 14px; border-radius: 6px;
+  }
+  .ctrl-label {
+    font-size: 12px; color: var(--muted); letter-spacing: .5px; min-width: 36px;
+  }
+  .ctrl input[type=range] {
+    width: 150px; accent-color: var(--accent); vertical-align: middle;
+  }
+  .ctrl .val {
+    min-width: 56px; text-align: right; color: var(--text);
+    font-size: 12px; font-variant-numeric: tabular-nums;
+  }
+  .rotate-quick { display: flex; gap: 4px; }
+  .spacer { flex: 1; }
+
+  .progress-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.85);
+    display: none; align-items: center; justify-content: center; z-index: 200;
+  }
+  .progress-overlay.active { display: flex; }
+  .progress-box {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 24px 32px; text-align: center; min-width: 320px;
+  }
+  .progress-box h3 { font-size: 14px; margin-bottom: 14px; letter-spacing: 1px; }
+  .progress-bar {
+    height: 6px; background: var(--panel-2); border-radius: 3px;
+    overflow: hidden; margin-bottom: 10px;
+  }
+  .progress-fill { height: 100%; background: var(--accent); width: 0%; transition: width .2s; }
+  .progress-text { font-size: 12px; color: var(--muted); }
+
+  input[type=file] { display: none; }
+
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 5px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>相片裁切輸出系統 <span>/</span> PHOTO CROPPER</h1>
+  <div class="toolbar">
+    <div class="template-group">
+      <button class="template-btn active" data-template="5x7">5 × 7　<small style="opacity:.6">1500×2100</small></button>
+      <button class="template-btn" data-template="6x8">6 × 8　<small style="opacity:.6">1800×2400</small></button>
+    </div>
+    <button class="btn" id="addBtn">+ 加入照片</button>
+    <button class="btn danger-ghost" id="clearBtn" disabled>清空</button>
+    <div class="spacer"></div>
+    <div class="status">已載入 <b id="countLabel">0</b> 張</div>
+    <button class="btn primary" id="exportBtn" disabled>批次輸出 ZIP</button>
+  </div>
+</header>
+
+<main>
+  <div id="dropZone" class="empty">
+    <div class="hint-icon">+</div>
+    <div class="hint-title">將照片拖曳至此</div>
+    <div class="hint-sub">或點擊「加入照片」按鈕，支援多張同時上傳。橫式照片會自動旋轉為直式。</div>
+  </div>
+</main>
+
+<input type="file" id="fileInput" multiple accept="image/*">
+
+<!-- Crop Modal -->
+<div class="modal" id="cropModal">
+  <div class="modal-inner">
+    <div class="modal-header">
+      <h2>裁切調整 <span class="sub" id="cropSubTitle"></span></h2>
+      <button class="btn" id="closeCropBtn">關閉</button>
+    </div>
+    <div class="crop-stage">
+      <canvas id="cropCanvas"></canvas>
+    </div>
+    <div class="crop-controls">
+      <div class="ctrl">
+        <span class="ctrl-label">縮放</span>
+        <input type="range" id="zoomRange" min="1" max="4" step="0.01" value="1">
+        <span class="val" id="zoomValue">100%</span>
+      </div>
+      <div class="ctrl">
+        <span class="ctrl-label">旋轉</span>
+        <input type="range" id="angleRange" min="-180" max="180" step="0.5" value="0">
+        <span class="val" id="angleValue">0.0°</span>
+        <div class="rotate-quick">
+          <button class="btn sm" id="rotateLeft90" title="逆時針 90°">⟲90°</button>
+          <button class="btn sm" id="rotateRight90" title="順時針 90°">⟳90°</button>
+        </div>
+      </div>
+      <div class="spacer"></div>
+      <button class="btn" id="resetCropBtn">重置</button>
+      <button class="btn primary" id="saveCropBtn">儲存裁切</button>
+    </div>
+    <div style="font-size:11px;color:var(--muted);padding:0 4px;">
+      提示：照片會自動填滿裁切框（無論縮放或旋轉）。拖曳移動 · 滾輪縮放 · 角度任意調整。
+    </div>
+  </div>
+</div>
+
+<!-- Progress -->
+<div class="progress-overlay" id="progressOverlay">
+  <div class="progress-box">
+    <h3 id="progressTitle">輸出中...</h3>
+    <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+    <div class="progress-text" id="progressText">0 / 0</div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script>
+/* =========================================================
+   模板與狀態
+   ---------------------------------------------------------
+   crop 座標系統採「正規化 offset」：
+     offsetX / offsetY 是以「裁切框寬（或高）」為 1 單位的比例
+     因此預覽縮放到任何尺寸都能一致對應到最終輸出
+   zoom: 1 = 在目前角度下，圖片剛好覆蓋裁切框（cover）
+   angle: 順時針角度（度）
+   ========================================================= */
+const TEMPLATES = {
+  '5x7': { w: 1500, h: 2100, label: '5×7' },
+  '6x8': { w: 1800, h: 2400, label: '6×8' }
+};
+
+const state = {
+  template: '5x7',
+  photos: []
+};
+
+let photoIdSeq = 0;
+
+/* ===================== 基本工具 ===================== */
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+function defaultCrop(photo) {
+  // 橫式照片自動旋轉 90° 變直式
+  const angle = photo && photo.autoRotated ? 90 : 0;
+  return { zoom: 1, offsetX: 0, offsetY: 0, angle };
+}
+
+function loadImage(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+/* =========================================================
+   核心繪製函式
+   在指定 canvas 上，畫出：
+     - 完整照片（含裁切框外），套用 zoom/angle/offset
+     - 裁切框（以半透明遮罩、邊線、九宮格、角標示顯示）
+   mode:
+     'modal'  -> 有外部留白、遮罩、邊線、九宮格
+     'thumb'  -> 裁切框 = 整個 canvas，不顯示框外
+     'export' -> 裁切框 = 整個 canvas，不顯示框外；用於最終輸出
+   ========================================================= */
+function drawPhoto(ctx, canvas, photo, tpl, mode) {
+  const W = canvas.width;
+  const H = canvas.height;
+  const tplRatio = tpl.w / tpl.h;
+
+  // 背景
+  ctx.fillStyle = (mode === 'modal') ? '#0a0b0f' : '#000';
+  ctx.fillRect(0, 0, W, H);
+
+  // 防呆：canvas 或圖片尺寸為 0 時直接返回（避免 NaN 污染 offset）
+  if (W === 0 || H === 0 || !photo.img || photo.img.width === 0 || photo.img.height === 0) {
+    return null;
+  }
+
+  // 裁切框尺寸與位置
+  let frameW, frameH, frameX, frameY;
+  if (mode === 'modal') {
+    const margin = 60;
+    const availW = W - margin * 2;
+    const availH = H - margin * 2;
+    if (availW / availH > tplRatio) {
+      frameH = availH; frameW = frameH * tplRatio;
+    } else {
+      frameW = availW; frameH = frameW / tplRatio;
+    }
+  } else {
+    frameW = W; frameH = H;
+  }
+  frameX = (W - frameW) / 2;
+  frameY = (H - frameH) / 2;
+
+  // 計算圖片在畫布上的繪製尺寸
+  const iw = photo.img.width;
+  const ih = photo.img.height;
+  const angleRad = photo.crop.angle * Math.PI / 180;
+  const absCos = Math.abs(Math.cos(angleRad));
+  const absSin = Math.abs(Math.sin(angleRad));
+  // baseScale: 讓旋轉後的圖片「必定」完全覆蓋裁切框（zoom=1 時 cover）
+  // 關鍵：把裁切框逆旋轉到圖片座標系，算出包住它的未旋轉矩形，
+  // 再取寬高兩個方向的最大比例
+  const needW = frameW * absCos + frameH * absSin;
+  const needH = frameW * absSin + frameH * absCos;
+  const baseScale = Math.max(needW / iw, needH / ih);
+  const scale = baseScale * photo.crop.zoom;
+
+  // ---- Clamp offset：確保裁切框四個角都在圖片內（精確覆蓋檢查）----
+  // 在「以圖片中心為原點、與圖片同步旋轉」的座標系中，
+  // 圖片範圍為 [-iw/2, iw/2] × [-ih/2, ih/2]（單位：原圖像素）
+  // 畫面上的裁切框四角為 (±frameW/2 - dxScreen, ±frameH/2 - dyScreen)（相對畫面中心的位移）
+  // 將此「框中心到框角的向量 - 圖片中心到框中心的位移」逆旋轉 angle 後除以 scale，
+  // 得到在圖片座標系中「圖片中心到框角」的向量，
+  // 四個角的 x、y 分量都必須在 [-iw/2, iw/2] 與 [-ih/2, ih/2] 內
+  //
+  // 令 (dxS, dyS) 為畫面位移（圖片中心相對畫面中心），
+  // 對四個角 (sx, sy) ∈ {±frameW/2} × {±frameH/2}：
+  //   角相對畫面中心: (sx, sy)
+  //   角相對圖片中心（畫面座標）: (sx - dxS, sy - dyS)
+  //   逆旋轉 angle（-angle）得圖片座標方向:
+  //     xi = (sx - dxS)*cos + (sy - dyS)*sin
+  //     yi = -(sx - dxS)*sin + (sy - dyS)*cos
+  //   該向量在圖片座標系中（未縮放），再除以 scale 得到原圖像素座標：
+  //     xi/scale ∈ [-iw/2, iw/2]
+  //     yi/scale ∈ [-ih/2, ih/2]
+  // 整理得（以 dxS, dyS 為變數的線性不等式）：
+  //   cos·dxS + sin·dyS ∈ [cos·sx + sin·sy - iw*scale/2, cos·sx + sin·sy + iw*scale/2]
+  //   -sin·dxS + cos·dyS ∈ [-sin·sx + cos·sy - ih*scale/2, -sin·sx + cos·sy + ih*scale/2]
+  // 其中 U = cos·dxS + sin·dyS, V = -sin·dxS + cos·dyS 就是圖片座標系中的位移。
+  // 所以對四個角求交集：
+  //   U ∈ [max(cos·sx + sin·sy) - iw*scale/2, min(cos·sx + sin·sy) + iw*scale/2]
+  //   V ∈ [max(-sin·sx + cos·sy) - ih*scale/2, min(-sin·sx + cos·sy) + ih*scale/2]
+  // 但 sx, sy 為 ±對稱，取 max/min 對四個角分別是 ±frameW/2·|cos| ± frameH/2·|sin|：
+  //   max(cos·sx + sin·sy) = frameW/2·|cos| + frameH/2·|sin| = needW/2
+  //   min(cos·sx + sin·sy) = -needW/2
+  //   max(-sin·sx + cos·sy) = frameW/2·|sin| + frameH/2·|cos| = needH/2
+  //   min(-sin·sx + cos·sy) = -needH/2
+  // 於是：
+  //   U ∈ [needW/2 - iw*scale/2, -needW/2 + iw*scale/2]
+  //     = [-(iw*scale - needW)/2, (iw*scale - needW)/2]
+  //   V ∈ [-(ih*scale - needH)/2, (ih*scale - needH)/2]
+  // 這等同於畫面位移經過逆旋轉後的 clamp，範圍（畫面像素）為：
+  //   |U| <= (iw*scale - needW)/2
+  //   |V| <= (ih*scale - needH)/2
+  // 注意這裡 U, V 是「畫面像素」單位的圖片座標位移（等於 dxImg*scale, dyImg*scale）
+  const maxU = Math.max(0, (iw * scale - needW) / 2);
+  const maxV = Math.max(0, (ih * scale - needH) / 2);
+  const cosA = Math.cos(angleRad);
+  const sinA = Math.sin(angleRad);
+  if (!isFinite(scale) || scale <= 0) {
+    photo.crop.offsetX = 0;
+    photo.crop.offsetY = 0;
+  } else {
+    const dxS = photo.crop.offsetX * frameW;
+    const dyS = photo.crop.offsetY * frameH;
+    // 畫面位移 → 逆旋轉 → U, V (等同於圖片座標下的位移 × scale)
+    let U = dxS * cosA + dyS * sinA;
+    let V = -dxS * sinA + dyS * cosA;
+    U = clamp(U, -maxU, maxU);
+    V = clamp(V, -maxV, maxV);
+    // 轉回畫面位移（正旋轉）
+    const dxClamped = U * cosA - V * sinA;
+    const dyClamped = U * sinA + V * cosA;
+    photo.crop.offsetX = dxClamped / frameW;
+    photo.crop.offsetY = dyClamped / frameH;
+  }
+  const drawW = iw * scale;
+  const drawH = ih * scale;
+
+  // 中心點：裁切框中心 + (正規化 offset * 裁切框尺寸)
+  const cx = frameX + frameW / 2 + photo.crop.offsetX * frameW;
+  const cy = frameY + frameH / 2 + photo.crop.offsetY * frameH;
+
+  if (mode === 'modal') {
+    // 先把完整照片畫在整個 canvas (不 clip)，框外會被遮罩變暗
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(angleRad);
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(photo.img, -drawW / 2, -drawH / 2, drawW, drawH);
+    ctx.restore();
+
+    // 框外遮罩
+    ctx.save();
+    ctx.fillStyle = 'rgba(8, 9, 13, 0.62)';
+    ctx.fillRect(0, 0, W, frameY);
+    ctx.fillRect(0, frameY + frameH, W, H - (frameY + frameH));
+    ctx.fillRect(0, frameY, frameX, frameH);
+    ctx.fillRect(frameX + frameW, frameY, W - (frameX + frameW), frameH);
+    ctx.restore();
+
+    // 裁切框邊線
+    ctx.save();
+    ctx.strokeStyle = 'rgba(217,119,6,0.95)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(frameX + 0.5, frameY + 0.5, frameW - 1, frameH - 1);
+
+    // 九宮格
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let i = 1; i < 3; i++) {
+      const x = frameX + (frameW * i) / 3;
+      ctx.moveTo(x, frameY); ctx.lineTo(x, frameY + frameH);
+      const y = frameY + (frameH * i) / 3;
+      ctx.moveTo(frameX, y); ctx.lineTo(frameX + frameW, y);
+    }
+    ctx.stroke();
+
+    // 四角
+    const c = 14;
+    ctx.strokeStyle = '#f59e0b';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(frameX, frameY + c); ctx.lineTo(frameX, frameY); ctx.lineTo(frameX + c, frameY);
+    ctx.moveTo(frameX + frameW - c, frameY); ctx.lineTo(frameX + frameW, frameY); ctx.lineTo(frameX + frameW, frameY + c);
+    ctx.moveTo(frameX + frameW, frameY + frameH - c); ctx.lineTo(frameX + frameW, frameY + frameH); ctx.lineTo(frameX + frameW - c, frameY + frameH);
+    ctx.moveTo(frameX + c, frameY + frameH); ctx.lineTo(frameX, frameY + frameH); ctx.lineTo(frameX, frameY + frameH - c);
+    ctx.stroke();
+    ctx.restore();
+  } else {
+    // thumb / export: 只顯示裁切框內
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(frameX, frameY, frameW, frameH);
+    ctx.clip();
+    ctx.translate(cx, cy);
+    ctx.rotate(angleRad);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(photo.img, -drawW / 2, -drawH / 2, drawW, drawH);
+    ctx.restore();
+  }
+
+  return { frameX, frameY, frameW, frameH };
+}
+
+/* ===================== DOM & 事件 ===================== */
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+const addBtn = document.getElementById('addBtn');
+const clearBtn = document.getElementById('clearBtn');
+const exportBtn = document.getElementById('exportBtn');
+const countLabel = document.getElementById('countLabel');
+const templateBtns = document.querySelectorAll('.template-btn');
+
+templateBtns.forEach(btn => {
+  btn.addEventListener('click', () => {
+    templateBtns.forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.template = btn.dataset.template;
+    state.photos.forEach(p => { p.crop = defaultCrop(p); });
+    renderGrid();
+  });
+});
+
+addBtn.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', e => {
+  handleFiles(e.target.files);
+  fileInput.value = '';
+});
+
+['dragenter','dragover'].forEach(ev =>
+  dropZone.addEventListener(ev, e => { e.preventDefault(); dropZone.classList.add('dragover'); })
+);
+['dragleave','drop'].forEach(ev =>
+  dropZone.addEventListener(ev, e => { e.preventDefault(); dropZone.classList.remove('dragover'); })
+);
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  handleFiles(e.dataTransfer.files);
+});
+
+async function handleFiles(fileList) {
+  const files = Array.from(fileList).filter(f => f.type.startsWith('image/'));
+  for (const file of files) {
+    try {
+      const img = await loadImage(file);
+      const autoRotated = img.width > img.height;
+      const photo = { id: ++photoIdSeq, file, name: file.name, img, autoRotated, crop: null };
+      photo.crop = defaultCrop(photo);
+      state.photos.push(photo);
+    } catch (err) {
+      console.error('載入失敗', file.name, err);
+    }
+  }
+  renderGrid();
+}
+
+/* ===================== Grid 渲染 ===================== */
+function renderGrid() {
+  countLabel.textContent = state.photos.length;
+  exportBtn.disabled = state.photos.length === 0;
+  clearBtn.disabled = state.photos.length === 0;
+
+  if (state.photos.length === 0) {
+    dropZone.className = 'empty';
+    dropZone.innerHTML = `
+      <div class="hint-icon">+</div>
+      <div class="hint-title">將照片拖曳至此</div>
+      <div class="hint-sub">或點擊「加入照片」按鈕，支援多張同時上傳。橫式照片會自動旋轉為直式。</div>
+    `;
+    return;
+  }
+
+  dropZone.className = '';
+  dropZone.innerHTML = '<div class="grid" id="photoGrid"></div>';
+  const grid = document.getElementById('photoGrid');
+
+  state.photos.forEach(photo => {
+    const card = document.createElement('div');
+    card.className = 'card size-' + state.template;
+    card.innerHTML = `
+      <div class="thumb-wrap">
+        <canvas></canvas>
+        <div class="badge">${TEMPLATES[state.template].label}</div>
+        ${photo.autoRotated ? '<div class="rotated-badge">已旋轉</div>' : ''}
+        <div class="dbl-hint">雙擊以裁切</div>
+      </div>
+      <div class="meta">
+        <div class="filename" title="${photo.name}">${photo.name}</div>
+        <button class="remove" title="移除">×</button>
+      </div>
+    `;
+    const canvas = card.querySelector('canvas');
+    const thumbWrap = card.querySelector('.thumb-wrap');
+
+    requestAnimationFrame(() => {
+      canvas.width = thumbWrap.clientWidth;
+      canvas.height = thumbWrap.clientHeight;
+      const ctx = canvas.getContext('2d');
+      drawPhoto(ctx, canvas, photo, TEMPLATES[state.template], 'thumb');
+    });
+
+    thumbWrap.addEventListener('dblclick', () => openCropModal(photo.id));
+    card.querySelector('.remove').addEventListener('click', e => {
+      e.stopPropagation();
+      state.photos = state.photos.filter(p => p.id !== photo.id);
+      renderGrid();
+    });
+
+    grid.appendChild(card);
+  });
+}
+
+/* ===================== 裁切 Modal ===================== */
+const cropModal = document.getElementById('cropModal');
+const cropCanvas = document.getElementById('cropCanvas');
+const zoomRange = document.getElementById('zoomRange');
+const zoomValue = document.getElementById('zoomValue');
+const angleRange = document.getElementById('angleRange');
+const angleValue = document.getElementById('angleValue');
+const rotateLeft90Btn = document.getElementById('rotateLeft90');
+const rotateRight90Btn = document.getElementById('rotateRight90');
+const resetCropBtn = document.getElementById('resetCropBtn');
+const saveCropBtn = document.getElementById('saveCropBtn');
+const closeCropBtn = document.getElementById('closeCropBtn');
+const cropSubTitle = document.getElementById('cropSubTitle');
+
+let cropEditing = null;
+let cropEditingBackup = null;
+let lastFrame = null;  // 記錄 modal 當前的 frame 尺寸，用於拖曳正規化
+
+function formatAngle(a) {
+  const v = Math.round(a * 10) / 10;
+  return (v > 0 ? '+' : '') + v.toFixed(1) + '°';
+}
+
+function openCropModal(photoId) {
+  const photo = state.photos.find(p => p.id === photoId);
+  if (!photo) return;
+  cropEditing = photo;
+  cropEditingBackup = JSON.parse(JSON.stringify(photo.crop));
+
+  zoomRange.value = photo.crop.zoom;
+  zoomValue.textContent = Math.round(photo.crop.zoom * 100) + '%';
+  angleRange.value = photo.crop.angle;
+  angleValue.textContent = formatAngle(photo.crop.angle);
+  cropSubTitle.textContent = photo.name + ' · ' + TEMPLATES[state.template].label + ' (' + TEMPLATES[state.template].w + '×' + TEMPLATES[state.template].h + ')';
+
+  cropModal.classList.add('active');
+  // 等 CSS display 切換與 layout 完成後再測量尺寸繪製
+  requestAnimationFrame(() => {
+    setupCropCanvas();
+    renderCropCanvas();
+  });
+}
+
+function setupCropCanvas() {
+  const stage = cropCanvas.parentElement;
+  cropCanvas.width = stage.clientWidth;
+  cropCanvas.height = stage.clientHeight;
+}
+
+function renderCropCanvas() {
+  if (!cropEditing) return;
+  const ctx = cropCanvas.getContext('2d');
+  lastFrame = drawPhoto(ctx, cropCanvas, cropEditing, TEMPLATES[state.template], 'modal');
+}
+
+/* 控制元件 */
+zoomRange.addEventListener('input', () => {
+  if (!cropEditing) return;
+  cropEditing.crop.zoom = parseFloat(zoomRange.value);
+  zoomValue.textContent = Math.round(cropEditing.crop.zoom * 100) + '%';
+  renderCropCanvas();
+});
+
+angleRange.addEventListener('input', () => {
+  if (!cropEditing) return;
+  cropEditing.crop.angle = parseFloat(angleRange.value);
+  angleValue.textContent = formatAngle(cropEditing.crop.angle);
+  renderCropCanvas();
+});
+
+function rotateBy(delta) {
+  if (!cropEditing) return;
+  let a = cropEditing.crop.angle + delta;
+  while (a > 180) a -= 360;
+  while (a < -180) a += 360;
+  cropEditing.crop.angle = a;
+  angleRange.value = a;
+  angleValue.textContent = formatAngle(a);
+  renderCropCanvas();
+}
+rotateLeft90Btn.addEventListener('click', () => rotateBy(-90));
+rotateRight90Btn.addEventListener('click', () => rotateBy(90));
+
+/* 拖曳：使用正規化 offset (以 frame 尺寸為單位) */
+let dragStart = null;
+cropCanvas.addEventListener('mousedown', e => {
+  if (!cropEditing) return;
+  dragStart = {
+    x: e.clientX, y: e.clientY,
+    ox: cropEditing.crop.offsetX, oy: cropEditing.crop.offsetY
+  };
+  cropCanvas.classList.add('grabbing');
+});
+window.addEventListener('mousemove', e => {
+  if (!dragStart || !cropEditing || !lastFrame) return;
+  const rect = cropCanvas.getBoundingClientRect();
+  const scaleX = cropCanvas.width / rect.width;
+  const scaleY = cropCanvas.height / rect.height;
+  const dxCanvas = (e.clientX - dragStart.x) * scaleX;
+  const dyCanvas = (e.clientY - dragStart.y) * scaleY;
+  // 將 canvas 像素位移轉為「正規化 offset」
+  cropEditing.crop.offsetX = dragStart.ox + dxCanvas / lastFrame.frameW;
+  cropEditing.crop.offsetY = dragStart.oy + dyCanvas / lastFrame.frameH;
+  renderCropCanvas();
+});
+window.addEventListener('mouseup', () => {
+  dragStart = null;
+  cropCanvas.classList.remove('grabbing');
+});
+
+/* 滾輪縮放 */
+cropCanvas.addEventListener('wheel', e => {
+  if (!cropEditing) return;
+  e.preventDefault();
+  const delta = -e.deltaY * 0.002;
+  cropEditing.crop.zoom = clamp(cropEditing.crop.zoom + delta, 1, 4);
+  zoomRange.value = cropEditing.crop.zoom;
+  zoomValue.textContent = Math.round(cropEditing.crop.zoom * 100) + '%';
+  renderCropCanvas();
+}, { passive: false });
+
+resetCropBtn.addEventListener('click', () => {
+  if (!cropEditing) return;
+  cropEditing.crop = defaultCrop(cropEditing);
+  zoomRange.value = cropEditing.crop.zoom;
+  zoomValue.textContent = Math.round(cropEditing.crop.zoom * 100) + '%';
+  angleRange.value = cropEditing.crop.angle;
+  angleValue.textContent = formatAngle(cropEditing.crop.angle);
+  renderCropCanvas();
+});
+
+saveCropBtn.addEventListener('click', () => {
+  cropEditing = null;
+  cropEditingBackup = null;
+  cropModal.classList.remove('active');
+  renderGrid();
+});
+
+closeCropBtn.addEventListener('click', () => {
+  if (cropEditing && cropEditingBackup) {
+    cropEditing.crop = cropEditingBackup;
+  }
+  cropEditing = null;
+  cropEditingBackup = null;
+  cropModal.classList.remove('active');
+  renderGrid();
+});
+
+/* 鍵盤快捷鍵 */
+window.addEventListener('keydown', e => {
+  if (!cropModal.classList.contains('active')) return;
+  if (e.key === 'Escape') closeCropBtn.click();
+  else if (e.key === 'Enter') saveCropBtn.click();
+});
+
+/* ===================== 清空 ===================== */
+clearBtn.addEventListener('click', () => {
+  if (!confirm('確定要清空所有照片？')) return;
+  state.photos = [];
+  renderGrid();
+});
+
+/* ===================== 時間戳工具 ===================== */
+function getTimestamp() {
+  const d = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  const mm = pad(d.getMonth() + 1);
+  const dd = pad(d.getDate());
+  const hh = pad(d.getHours());
+  const mi = pad(d.getMinutes());
+  const ss = pad(d.getSeconds());
+  return `${yyyy}${mm}${dd}_${hh}${mi}${ss}`;
+}
+
+/* ===================== 批次輸出 ===================== */
+const progressOverlay = document.getElementById('progressOverlay');
+const progressFill = document.getElementById('progressFill');
+const progressText = document.getElementById('progressText');
+const progressTitle = document.getElementById('progressTitle');
+
+exportBtn.addEventListener('click', async () => {
+  if (state.photos.length === 0) return;
+  const tpl = TEMPLATES[state.template];
+  progressOverlay.classList.add('active');
+  progressTitle.textContent = `輸出 ${tpl.label} (${tpl.w}×${tpl.h}) 中...`;
+  progressFill.style.width = '0%';
+  progressText.textContent = `0 / ${state.photos.length}`;
+
+  const zip = new JSZip();
+  const baseFolderName = `cropped_${state.template}_${getTimestamp()}`;
+  const folder = zip.folder(baseFolderName);
+
+  for (let i = 0; i < state.photos.length; i++) {
+    const photo = state.photos[i];
+    const blob = await renderFinalBlob(photo, tpl);
+    const baseName = photo.name.replace(/\.[^.]+$/, '');
+    folder.file(`${baseName}_${tpl.label}.jpg`, blob);
+    const pct = Math.round(((i + 1) / state.photos.length) * 100);
+    progressFill.style.width = pct + '%';
+    progressText.textContent = `${i + 1} / ${state.photos.length}`;
+    await new Promise(r => setTimeout(r, 10));
+  }
+
+  progressTitle.textContent = '打包中...';
+  const zipBlob = await zip.generateAsync({ type: 'blob' });
+  const url = URL.createObjectURL(zipBlob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${baseFolderName}.zip`;
+  a.click();
+  URL.revokeObjectURL(url);
+
+  progressOverlay.classList.remove('active');
+});
+
+async function renderFinalBlob(photo, tpl) {
+  const out = document.createElement('canvas');
+  out.width = tpl.w;
+  out.height = tpl.h;
+  const ctx = out.getContext('2d');
+  // 輸出 canvas 本身就是裁切框（export mode）
+  drawPhoto(ctx, out, photo, tpl, 'export');
+  return new Promise(resolve => {
+    out.toBlob(blob => resolve(blob), 'image/jpeg', 0.95);
+  });
+}
+
+/* ===================== 視窗縮放 ===================== */
+let resizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    if (cropModal.classList.contains('active')) {
+      setupCropCanvas();
+      renderCropCanvas();
+    }
+    if (state.photos.length > 0) renderGrid();
+  }, 120);
+});
+</script>
+</body>
+</html>
