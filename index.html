@@ -53,6 +53,43 @@
   .btn.danger-ghost:hover:not(:disabled) { border-color: var(--danger); color: var(--danger); }
   .btn.sm { padding: 5px 10px; font-size: 12px; }
 
+  /* Logo 設定列 */
+  .logo-bar {
+    padding: 10px 22px; background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  }
+  .logo-bar-title { font-size: 12px; color: var(--muted); letter-spacing: 1px; }
+  .logo-slot {
+    display: flex; align-items: center; gap: 8px;
+    height: 44px; min-width: 190px; padding: 4px 10px;
+    border: 2px dashed var(--border); border-radius: 6px;
+    background: var(--panel-2); color: var(--muted);
+    font-size: 12px; cursor: pointer; transition: all .15s;
+  }
+  .logo-slot:hover, .logo-slot.dragover { border-color: var(--accent); color: var(--accent); }
+  .logo-slot.dragover { background: rgba(217, 119, 6, .1); }
+  .logo-slot.has-logo { border-style: solid; color: var(--text); }
+  .logo-slot img {
+    height: 32px; max-width: 90px; object-fit: contain; border-radius: 3px;
+    background: repeating-conic-gradient(#3a3f4b 0% 25%, #2a2f3a 0% 50%) 0 0 / 10px 10px;
+  }
+  .logo-slot .logo-name {
+    max-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .logo-bar .ctrl { padding: 6px 10px; gap: 8px; }
+  .logo-bar .ctrl-label { min-width: 0; }
+  .logo-bar .ctrl input[type=range] { width: 100px; }
+  .logo-bar .ctrl input[type=number] {
+    width: 54px; padding: 4px 6px; border-radius: 4px;
+    border: 1px solid var(--border); background: var(--bg); color: var(--text);
+    font-size: 12px; font-family: inherit; text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .logo-bar .ctrl input[type=number]:focus { outline: none; border-color: var(--accent); }
+  .logo-bar .unit { font-size: 12px; color: var(--muted); }
+  .logo-bar.no-logo .ctrl { opacity: .45; }
+
   .status { color: var(--muted); font-size: 12px; letter-spacing: .5px; }
   .status b { color: var(--text); }
 
@@ -209,6 +246,7 @@
   .progress-text { font-size: 12px; color: var(--muted); }
 
   input[type=file] { display: none; }
+  [hidden] { display: none !important; }
 
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-track { background: var(--bg); }
@@ -235,6 +273,35 @@
   </div>
 </header>
 
+<div class="logo-bar no-logo" id="logoBar">
+  <span class="logo-bar-title">LOGO</span>
+  <div class="logo-slot" id="logoSlot" title="拖入或點擊選擇 Logo 圖片，會套用到所有照片的右下角">
+    <img id="logoPreview" alt="" hidden>
+    <span class="logo-name" id="logoName">拖入 Logo 圖片，或點擊選擇</span>
+  </div>
+  <button class="btn sm danger-ghost" id="logoRemoveBtn" hidden>移除 Logo</button>
+  <div class="ctrl" title="Logo 寬度佔照片寬度的比例">
+    <span class="ctrl-label">大小</span>
+    <input type="range" id="logoSizeRange" min="1" max="100" step="0.5">
+    <input type="number" id="logoSizeNum" min="1" max="100" step="0.5"><span class="unit">%</span>
+  </div>
+  <div class="ctrl" title="100% 為完全不透明">
+    <span class="ctrl-label">透明度</span>
+    <input type="range" id="logoOpacityRange" min="0" max="100" step="1">
+    <input type="number" id="logoOpacityNum" min="0" max="100" step="1"><span class="unit">%</span>
+  </div>
+  <div class="ctrl" title="Logo 右緣離照片右邊的距離，以照片寬度的百分比計">
+    <span class="ctrl-label">右邊距</span>
+    <input type="range" id="logoMarginXRange" min="0" max="50" step="0.5">
+    <input type="number" id="logoMarginXNum" min="0" max="50" step="0.5"><span class="unit">%</span>
+  </div>
+  <div class="ctrl" title="Logo 下緣離照片底邊的距離，以照片寬度的百分比計（與右邊距同單位，數字相同即等距）">
+    <span class="ctrl-label">下邊距</span>
+    <input type="range" id="logoMarginYRange" min="0" max="50" step="0.5">
+    <input type="number" id="logoMarginYNum" min="0" max="50" step="0.5"><span class="unit">%</span>
+  </div>
+</div>
+
 <main>
   <div id="dropZone" class="empty">
     <div class="hint-icon">+</div>
@@ -244,6 +311,7 @@
 </main>
 
 <input type="file" id="fileInput" multiple accept="image/*">
+<input type="file" id="logoInput" accept="image/*">
 
 <!-- Crop Modal -->
 <div class="modal" id="cropModal">
@@ -309,7 +377,13 @@ const TEMPLATES = {
 
 const state = {
   template: '5x7',
-  photos: []
+  photos: [],
+  // Logo：套用在所有照片右下角
+  //   size    : Logo 寬度佔照片寬度的百分比
+  //   opacity : 不透明度百分比（100 = 完全不透明）
+  //   marginX : 離右邊的距離（照片寬度的百分比）
+  //   marginY : 離底邊的距離（同樣以照片寬度的百分比計，數字相同即等距）
+  logo: { img: null, name: '', size: 20, opacity: 100, marginX: 3, marginY: 3 }
 };
 
 let photoIdSeq = 0;
@@ -473,6 +547,8 @@ function drawPhoto(ctx, canvas, photo, tpl, mode) {
     ctx.drawImage(photo.img, -drawW / 2, -drawH / 2, drawW, drawH);
     ctx.restore();
 
+    drawLogo(ctx, frameX, frameY, frameW, frameH);
+
     // 框外遮罩
     ctx.save();
     ctx.fillStyle = 'rgba(8, 9, 13, 0.62)';
@@ -523,9 +599,30 @@ function drawPhoto(ctx, canvas, photo, tpl, mode) {
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(photo.img, -drawW / 2, -drawH / 2, drawW, drawH);
     ctx.restore();
+
+    drawLogo(ctx, frameX, frameY, frameW, frameH);
   }
 
   return { frameX, frameY, frameW, frameH };
+}
+
+/* 在裁切框右下角畫上 Logo（預覽與輸出共用，尺寸都以裁切框寬度為基準） */
+function drawLogo(ctx, frameX, frameY, frameW, frameH) {
+  const logo = state.logo;
+  if (!logo.img || !logo.img.width || !logo.img.height) return;
+  const w = frameW * logo.size / 100;
+  const h = w * logo.img.height / logo.img.width;
+  const x = frameX + frameW - frameW * logo.marginX / 100 - w;
+  const y = frameY + frameH - frameW * logo.marginY / 100 - h;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(frameX, frameY, frameW, frameH);
+  ctx.clip();
+  ctx.globalAlpha = clamp(logo.opacity / 100, 0, 1);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(logo.img, x, y, w, h);
+  ctx.restore();
 }
 
 /* ===================== DOM & 事件 ===================== */
@@ -617,6 +714,7 @@ function renderGrid() {
     `;
     const canvas = card.querySelector('canvas');
     const thumbWrap = card.querySelector('.thumb-wrap');
+    photo.thumbCanvas = canvas;
 
     requestAnimationFrame(() => {
       canvas.width = thumbWrap.clientWidth;
@@ -635,6 +733,168 @@ function renderGrid() {
     grid.appendChild(card);
   });
 }
+
+/* ===================== Logo ===================== */
+const LOGO_SETTINGS_KEY = 'crop.logo.settings';
+const LOGO_IMAGE_KEY = 'crop.logo.image';
+const logoBar = document.getElementById('logoBar');
+const logoSlot = document.getElementById('logoSlot');
+const logoInput = document.getElementById('logoInput');
+const logoPreview = document.getElementById('logoPreview');
+const logoName = document.getElementById('logoName');
+const logoRemoveBtn = document.getElementById('logoRemoveBtn');
+const LOGO_FIELDS = [
+  { key: 'size',    range: 'logoSizeRange',    num: 'logoSizeNum',    min: 1, max: 100 },
+  { key: 'opacity', range: 'logoOpacityRange', num: 'logoOpacityNum', min: 0, max: 100 },
+  { key: 'marginX', range: 'logoMarginXRange', num: 'logoMarginXNum', min: 0, max: 50 },
+  { key: 'marginY', range: 'logoMarginYRange', num: 'logoMarginYNum', min: 0, max: 50 }
+];
+
+// 只重畫現有縮圖（不重建卡片），拖動滑桿時才不會卡
+let logoRedrawQueued = false;
+function redrawForLogo() {
+  if (logoRedrawQueued) return;
+  logoRedrawQueued = true;
+  requestAnimationFrame(() => {
+    logoRedrawQueued = false;
+    const tpl = TEMPLATES[state.template];
+    state.photos.forEach(photo => {
+      const c = photo.thumbCanvas;
+      if (c && c.isConnected && c.width && c.height) {
+        drawPhoto(c.getContext('2d'), c, photo, tpl, 'thumb');
+      }
+    });
+    if (cropModal.classList.contains('active')) renderCropCanvas();
+  });
+}
+
+function saveLogoSettings() {
+  try {
+    const { size, opacity, marginX, marginY } = state.logo;
+    localStorage.setItem(LOGO_SETTINGS_KEY, JSON.stringify({ size, opacity, marginX, marginY }));
+  } catch (err) { /* 無法儲存時略過，不影響使用 */ }
+}
+
+function syncLogoControls() {
+  LOGO_FIELDS.forEach(f => {
+    document.getElementById(f.range).value = state.logo[f.key];
+    document.getElementById(f.num).value = state.logo[f.key];
+  });
+}
+
+function updateLogoUI() {
+  const has = !!state.logo.img;
+  logoBar.classList.toggle('no-logo', !has);
+  logoSlot.classList.toggle('has-logo', has);
+  logoPreview.hidden = !has;
+  logoRemoveBtn.hidden = !has;
+  if (has) {
+    logoPreview.src = state.logo.img.src;
+    logoName.textContent = state.logo.name || 'Logo';
+    logoName.title = state.logo.name || '';
+  } else {
+    logoPreview.removeAttribute('src');
+    logoName.textContent = '拖入 Logo 圖片，或點擊選擇';
+    logoName.title = '';
+  }
+}
+
+LOGO_FIELDS.forEach(f => {
+  const range = document.getElementById(f.range);
+  const num = document.getElementById(f.num);
+  const apply = (raw, source) => {
+    const v = parseFloat(raw);
+    if (!isFinite(v)) return;
+    state.logo[f.key] = clamp(v, f.min, f.max);
+    if (source !== range) range.value = state.logo[f.key];
+    if (source !== num) num.value = state.logo[f.key];
+    saveLogoSettings();
+    redrawForLogo();
+  };
+  range.addEventListener('input', () => apply(range.value, range));
+  num.addEventListener('input', () => apply(num.value, num));
+  // 離開輸入框時把超出範圍或空白的值修正回來
+  num.addEventListener('change', () => { num.value = state.logo[f.key]; });
+});
+
+async function setLogoFromFile(file) {
+  if (!file || !file.type.startsWith('image/')) return;
+  try {
+    const img = await loadImage(file);
+    state.logo.img = img;
+    state.logo.name = file.name;
+    try {
+      localStorage.setItem(LOGO_IMAGE_KEY, JSON.stringify({ name: file.name, src: img.src }));
+    } catch (err) {
+      // 檔案太大存不進瀏覽器時，這次照常使用，只是下次開啟要重新拖入
+      try { localStorage.removeItem(LOGO_IMAGE_KEY); } catch (e) {}
+    }
+    updateLogoUI();
+    redrawForLogo();
+  } catch (err) {
+    console.error('Logo 載入失敗', file.name, err);
+    alert('Logo 載入失敗，請確認是圖片檔（建議使用透明背景的 PNG）。');
+  }
+}
+
+function removeLogo() {
+  state.logo.img = null;
+  state.logo.name = '';
+  try { localStorage.removeItem(LOGO_IMAGE_KEY); } catch (err) {}
+  updateLogoUI();
+  redrawForLogo();
+}
+
+logoSlot.addEventListener('click', () => logoInput.click());
+logoInput.addEventListener('change', e => {
+  setLogoFromFile(e.target.files[0]);
+  logoInput.value = '';
+});
+logoRemoveBtn.addEventListener('click', removeLogo);
+
+['dragenter', 'dragover'].forEach(ev =>
+  logoSlot.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); logoSlot.classList.add('dragover'); })
+);
+logoSlot.addEventListener('dragleave', e => { e.preventDefault(); logoSlot.classList.remove('dragover'); });
+logoSlot.addEventListener('drop', e => {
+  e.preventDefault();
+  e.stopPropagation();
+  logoSlot.classList.remove('dragover');
+  const file = Array.from(e.dataTransfer.files).find(f => f.type.startsWith('image/'));
+  setLogoFromFile(file);
+});
+
+// 沒丟準時，避免瀏覽器直接把圖片開成新頁面而離開系統
+['dragover', 'drop'].forEach(ev => window.addEventListener(ev, e => e.preventDefault()));
+
+// 載入上次的設定與 Logo
+(function restoreLogo() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(LOGO_SETTINGS_KEY) || 'null');
+    if (saved) {
+      LOGO_FIELDS.forEach(f => {
+        const v = parseFloat(saved[f.key]);
+        if (isFinite(v)) state.logo[f.key] = clamp(v, f.min, f.max);
+      });
+    }
+  } catch (err) {}
+  syncLogoControls();
+  updateLogoUI();
+  try {
+    const savedImg = JSON.parse(localStorage.getItem(LOGO_IMAGE_KEY) || 'null');
+    if (savedImg && savedImg.src) {
+      const img = new Image();
+      img.onload = () => {
+        if (state.logo.img) return; // 使用者已經先拖入新的
+        state.logo.img = img;
+        state.logo.name = savedImg.name || '';
+        updateLogoUI();
+        redrawForLogo();
+      };
+      img.src = savedImg.src;
+    }
+  } catch (err) {}
+})();
 
 /* ===================== 裁切 Modal ===================== */
 const cropModal = document.getElementById('cropModal');
