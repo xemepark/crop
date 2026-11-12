@@ -275,12 +275,12 @@
 
 <div class="logo-bar no-logo" id="logoBar">
   <span class="logo-bar-title">LOGO</span>
-  <div class="logo-slot" id="logoSlot" title="拖入或點擊選擇 Logo 圖片，會套用到所有照片的右下角">
+  <div class="logo-slot" id="logoSlot" title="拖入或點擊選擇 Logo 圖片，會套用到所有照片的右下角；照片有旋轉時 Logo 會跟著轉">
     <img id="logoPreview" alt="" hidden>
     <span class="logo-name" id="logoName">拖入 Logo 圖片，或點擊選擇</span>
   </div>
   <button class="btn sm danger-ghost" id="logoRemoveBtn" hidden>移除 Logo</button>
-  <div class="ctrl" title="Logo 寬度佔照片寬度的比例">
+  <div class="ctrl" title="Logo 寬度佔照片短邊的比例">
     <span class="ctrl-label">大小</span>
     <input type="range" id="logoSizeRange" min="1" max="100" step="0.5">
     <input type="number" id="logoSizeNum" min="1" max="100" step="0.5"><span class="unit">%</span>
@@ -290,12 +290,12 @@
     <input type="range" id="logoOpacityRange" min="0" max="100" step="1">
     <input type="number" id="logoOpacityNum" min="0" max="100" step="1"><span class="unit">%</span>
   </div>
-  <div class="ctrl" title="Logo 右緣離照片右邊的距離，以照片寬度的百分比計">
+  <div class="ctrl" title="Logo 離照片右邊的距離，以照片短邊的百分比計">
     <span class="ctrl-label">右邊距</span>
     <input type="range" id="logoMarginXRange" min="0" max="50" step="0.5">
     <input type="number" id="logoMarginXNum" min="0" max="50" step="0.5"><span class="unit">%</span>
   </div>
-  <div class="ctrl" title="Logo 下緣離照片底邊的距離，以照片寬度的百分比計（與右邊距同單位，數字相同即等距）">
+  <div class="ctrl" title="Logo 離照片底邊的距離，以照片短邊的百分比計（與右邊距同單位，數字相同即等距）">
     <span class="ctrl-label">下邊距</span>
     <input type="range" id="logoMarginYRange" min="0" max="50" step="0.5">
     <input type="number" id="logoMarginYNum" min="0" max="50" step="0.5"><span class="unit">%</span>
@@ -379,10 +379,11 @@ const state = {
   template: '5x7',
   photos: [],
   // Logo：套用在所有照片右下角
-  //   size    : Logo 寬度佔照片寬度的百分比
+  //   size    : Logo 寬度佔照片短邊的百分比
   //   opacity : 不透明度百分比（100 = 完全不透明）
-  //   marginX : 離右邊的距離（照片寬度的百分比）
-  //   marginY : 離底邊的距離（同樣以照片寬度的百分比計，數字相同即等距）
+  //   marginX : 離右邊的距離（照片短邊的百分比）
+  //   marginY : 離底邊的距離（同樣以短邊的百分比計，數字相同即等距）
+  // 右、下是指照片轉正來看的方向；照片旋轉時 Logo 會跟著轉
   logo: { img: null, name: '', size: 20, opacity: 100, marginX: 3, marginY: 3 }
 };
 
@@ -547,7 +548,7 @@ function drawPhoto(ctx, canvas, photo, tpl, mode) {
     ctx.drawImage(photo.img, -drawW / 2, -drawH / 2, drawW, drawH);
     ctx.restore();
 
-    drawLogo(ctx, frameX, frameY, frameW, frameH);
+    drawLogo(ctx, frameX, frameY, frameW, frameH, photo.crop.angle);
 
     // 框外遮罩
     ctx.save();
@@ -600,24 +601,35 @@ function drawPhoto(ctx, canvas, photo, tpl, mode) {
     ctx.drawImage(photo.img, -drawW / 2, -drawH / 2, drawW, drawH);
     ctx.restore();
 
-    drawLogo(ctx, frameX, frameY, frameW, frameH);
+    drawLogo(ctx, frameX, frameY, frameW, frameH, photo.crop.angle);
   }
 
   return { frameX, frameY, frameW, frameH };
 }
 
-/* 在裁切框右下角畫上 Logo（預覽與輸出共用，尺寸都以裁切框寬度為基準） */
-function drawLogo(ctx, frameX, frameY, frameW, frameH) {
+/* 畫上 Logo（預覽與輸出共用）
+   Logo 會跟著照片的方向：照片被轉了 90° 時，Logo 也轉 90°，
+   並落在「照片轉正來看時的右下角」。角度取最接近的 90° 倍數，
+   所以微調幾度的水平校正不會讓 Logo 歪掉。
+   大小與邊距都以裁切框的短邊為基準，同一批直式、橫式照片印出來 Logo 一樣大。 */
+function drawLogo(ctx, frameX, frameY, frameW, frameH, angle) {
   const logo = state.logo;
   if (!logo.img || !logo.img.width || !logo.img.height) return;
-  const w = frameW * logo.size / 100;
+  const quarter = ((Math.round((angle || 0) / 90) % 4) + 4) % 4;
+  const base = Math.min(frameW, frameH);
+  // 轉正後看到的畫面寬高
+  const viewW = (quarter % 2) ? frameH : frameW;
+  const viewH = (quarter % 2) ? frameW : frameH;
+  const w = base * logo.size / 100;
   const h = w * logo.img.height / logo.img.width;
-  const x = frameX + frameW - frameW * logo.marginX / 100 - w;
-  const y = frameY + frameH - frameW * logo.marginY / 100 - h;
+  const x = viewW / 2 - base * logo.marginX / 100 - w;
+  const y = viewH / 2 - base * logo.marginY / 100 - h;
   ctx.save();
   ctx.beginPath();
   ctx.rect(frameX, frameY, frameW, frameH);
   ctx.clip();
+  ctx.translate(frameX + frameW / 2, frameY + frameH / 2);
+  ctx.rotate(quarter * Math.PI / 2);
   ctx.globalAlpha = clamp(logo.opacity / 100, 0, 1);
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
