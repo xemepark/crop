@@ -94,6 +94,8 @@
   .logo-bar .ctrl input[type=number]:focus { outline: none; border-color: var(--accent); }
   .logo-bar .unit { font-size: 12px; color: var(--muted); }
   .logo-bar.no-logo .ctrl { opacity: .45; }
+  .btn.toggle[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.toggle[aria-pressed="true"]:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); color: #fff; }
 
   .status { color: var(--muted); font-size: 12px; letter-spacing: .5px; white-space: nowrap; }
   .status b { color: var(--text); }
@@ -339,6 +341,7 @@
     <input type="range" id="logoMarginYRange" min="0" max="50" step="0.5">
     <input type="number" id="logoMarginYNum" min="0" max="50" step="0.5"><span class="unit">%</span>
   </div>
+  <button class="btn toggle" id="logoInvertBtn" aria-pressed="false" title="把 Logo 的顏色反過來（白變黑、黑變白），套用到所有照片" hidden>反相</button>
 </div>
 
 <main>
@@ -383,6 +386,7 @@
         </div>
       </div>
       <div class="spacer"></div>
+      <button class="btn toggle" id="logoInvertOneBtn" aria-pressed="false" title="只把這張照片的 Logo 顏色反過來（白變黑、黑變白）" hidden>此張 Logo 反相</button>
       <button class="btn" id="resetLogoPosBtn" title="把這張照片的 Logo 放回共用設定的位置" hidden>Logo 歸位</button>
       <button class="btn" id="resetCropBtn">重置</button>
       <button class="btn primary" id="saveCropBtn">儲存裁切</button>
@@ -435,7 +439,8 @@ const state = {
   //   marginX : 離右邊的距離（照片短邊的百分比）
   //   marginY : 離底邊的距離（同樣以短邊的百分比計，數字相同即等距）
   // 右、下是指照片轉正來看的方向；照片旋轉時 Logo 會跟著轉
-  logo: { img: null, name: '', size: 20, opacity: 100, marginX: 3, marginY: 3 }
+  // invert  : 全部照片的 Logo 是否反相；單張可在裁切視窗另外切換
+  logo: { img: null, inverted: null, name: '', size: 20, opacity: 100, marginX: 3, marginY: 3, invert: false }
 };
 
 let photoIdSeq = 0;
@@ -454,7 +459,8 @@ function defaultCrop(photo) {
   const angle = shouldAutoRotate(photo) ? 90 : 0;
   // logoDX / logoDY：這張照片的 Logo 相對於共用位置的微調量
   // （以裁切框短邊為 1 單位，方向是照片轉正來看的右與下）
-  return { zoom: 1, offsetX: 0, offsetY: 0, angle, logoDX: 0, logoDY: 0 };
+  // logoInvert：這張照片的 Logo 是否與共用設定相反（共用沒反相時＝這張反相）
+  return { zoom: 1, offsetX: 0, offsetY: 0, angle, logoDX: 0, logoDY: 0, logoInvert: false };
 }
 
 function loadImage(file) {
@@ -686,6 +692,29 @@ function logoPlacement(crop, frameW, frameH) {
   return { quarter, base, w, h, x, y, baseX, baseY };
 }
 
+/* 產生顏色反相的 Logo（透明度不變），只在換 Logo 時做一次 */
+function makeInvertedLogo(img) {
+  try {
+    const c = document.createElement('canvas');
+    c.width = img.naturalWidth || img.width;
+    c.height = img.naturalHeight || img.height;
+    const ctx = c.getContext('2d');
+    ctx.drawImage(img, 0, 0, c.width, c.height);
+    const data = ctx.getImageData(0, 0, c.width, c.height);
+    const d = data.data;
+    for (let i = 0; i < d.length; i += 4) {
+      d[i] = 255 - d[i];
+      d[i + 1] = 255 - d[i + 1];
+      d[i + 2] = 255 - d[i + 2];
+    }
+    ctx.putImageData(data, 0, 0);
+    return c;
+  } catch (err) {
+    console.error('Logo 反相失敗', err);
+    return null;
+  }
+}
+
 /* 畫上 Logo；回傳 Logo 在 canvas 上的外框（供裁切視窗點選、拖曳用） */
 function drawLogo(ctx, frameX, frameY, frameW, frameH, photo, outline) {
   const pl = logoPlacement(photo.crop, frameW, frameH);
@@ -701,7 +730,8 @@ function drawLogo(ctx, frameX, frameY, frameW, frameH, photo, outline) {
   ctx.globalAlpha = clamp(state.logo.opacity / 100, 0, 1);
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(state.logo.img, pl.x, pl.y, pl.w, pl.h);
+  const useInverted = state.logo.invert !== !!photo.crop.logoInvert;
+  ctx.drawImage((useInverted && state.logo.inverted) || state.logo.img, pl.x, pl.y, pl.w, pl.h);
   if (outline) {
     ctx.globalAlpha = 1;
     ctx.setLineDash([5, 4]);
@@ -952,6 +982,7 @@ const logoInput = document.getElementById('logoInput');
 const logoPreview = document.getElementById('logoPreview');
 const logoName = document.getElementById('logoName');
 const logoRemoveBtn = document.getElementById('logoRemoveBtn');
+const logoInvertBtn = document.getElementById('logoInvertBtn');
 const LOGO_FIELDS = [
   { key: 'size',    range: 'logoSizeRange',    num: 'logoSizeNum',    min: 1, max: 100 },
   { key: 'opacity', range: 'logoOpacityRange', num: 'logoOpacityNum', min: 0, max: 100 },
@@ -979,8 +1010,8 @@ function redrawForLogo() {
 
 function saveLogoSettings() {
   try {
-    const { size, opacity, marginX, marginY } = state.logo;
-    localStorage.setItem(LOGO_SETTINGS_KEY, JSON.stringify({ size, opacity, marginX, marginY }));
+    const { size, opacity, marginX, marginY, invert } = state.logo;
+    localStorage.setItem(LOGO_SETTINGS_KEY, JSON.stringify({ size, opacity, marginX, marginY, invert }));
   } catch (err) { /* 無法儲存時略過，不影響使用 */ }
 }
 
@@ -997,6 +1028,8 @@ function updateLogoUI() {
   logoSlot.classList.toggle('has-logo', has);
   logoPreview.hidden = !has;
   logoRemoveBtn.hidden = !has;
+  logoInvertBtn.hidden = !has;
+  logoInvertBtn.setAttribute('aria-pressed', String(state.logo.invert));
   if (has) {
     logoPreview.src = state.logo.img.src;
     logoName.textContent = state.logo.name || 'Logo';
@@ -1031,6 +1064,7 @@ async function setLogoFromFile(file) {
   try {
     const img = await loadImage(file);
     state.logo.img = img;
+    state.logo.inverted = makeInvertedLogo(img);
     state.logo.name = file.name;
     try {
       localStorage.setItem(LOGO_IMAGE_KEY, JSON.stringify({ name: file.name, src: img.src }));
@@ -1048,6 +1082,7 @@ async function setLogoFromFile(file) {
 
 function removeLogo() {
   state.logo.img = null;
+  state.logo.inverted = null;
   state.logo.name = '';
   try { localStorage.removeItem(LOGO_IMAGE_KEY); } catch (err) {}
   updateLogoUI();
@@ -1060,6 +1095,12 @@ logoInput.addEventListener('change', e => {
   logoInput.value = '';
 });
 logoRemoveBtn.addEventListener('click', removeLogo);
+logoInvertBtn.addEventListener('click', () => {
+  state.logo.invert = !state.logo.invert;
+  saveLogoSettings();
+  updateLogoUI();
+  redrawForLogo();
+});
 
 ['dragenter', 'dragover'].forEach(ev =>
   logoSlot.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); logoSlot.classList.add('dragover'); })
@@ -1085,6 +1126,7 @@ logoSlot.addEventListener('drop', e => {
         const v = parseFloat(saved[f.key]);
         if (isFinite(v)) state.logo[f.key] = clamp(v, f.min, f.max);
       });
+      state.logo.invert = saved.invert === true;
     }
   } catch (err) {}
   syncLogoControls();
@@ -1096,6 +1138,7 @@ logoSlot.addEventListener('drop', e => {
       img.onload = () => {
         if (state.logo.img) return; // 使用者已經先拖入新的
         state.logo.img = img;
+        state.logo.inverted = makeInvertedLogo(img);
         state.logo.name = savedImg.name || '';
         updateLogoUI();
         redrawForLogo();
@@ -1124,6 +1167,7 @@ let cropEditingBackup = null;
 let lastFrame = null;  // 記錄 modal 當前的 frame 尺寸，用於拖曳正規化
 const resetLogoPosBtn = document.getElementById('resetLogoPosBtn');
 const logoHint = document.getElementById('logoHint');
+const logoInvertOneBtn = document.getElementById('logoInvertOneBtn');
 let logoSelected = false;  // 在裁切視窗中點選了 Logo（可用方向鍵微調）
 let logoHover = false;
 let logoDrag = null;
@@ -1134,6 +1178,8 @@ function updateLogoModalUI() {
   const moved = !!(cropEditing && (cropEditing.crop.logoDX || cropEditing.crop.logoDY));
   resetLogoPosBtn.hidden = !has;
   resetLogoPosBtn.disabled = !moved;
+  logoInvertOneBtn.hidden = !has;
+  logoInvertOneBtn.setAttribute('aria-pressed', String(!!(cropEditing && cropEditing.crop.logoInvert)));
 }
 
 // 把 canvas 上的位移換算成這張照片 Logo 的微調量，並限制在裁切框內
@@ -1302,6 +1348,12 @@ cropCanvas.addEventListener('mousemove', e => {
 });
 cropCanvas.addEventListener('mouseleave', () => {
   if (logoHover) { logoHover = false; cropCanvas.classList.remove('over-logo'); renderCropCanvas(); }
+});
+
+logoInvertOneBtn.addEventListener('click', () => {
+  if (!cropEditing) return;
+  cropEditing.crop.logoInvert = !cropEditing.crop.logoInvert;
+  renderCropCanvas();
 });
 
 resetLogoPosBtn.addEventListener('click', () => {
