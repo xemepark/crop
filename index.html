@@ -24,19 +24,23 @@
     border-bottom: 1px solid var(--border);
     display: flex; align-items: center; gap: 24px;
   }
-  header h1 { font-size: 16px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase; }
+  header h1 { white-space: nowrap; font-size: 16px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase; }
   header h1 span { color: var(--accent); }
 
-  .toolbar { display: flex; gap: 12px; align-items: center; flex: 1; }
+  .toolbar { display: flex; gap: 12px; align-items: center; flex: 1; flex-wrap: wrap; }
+  .toolbar-end { display: flex; gap: 12px; align-items: center; margin-left: auto; }
   .template-group {
     display: flex; background: var(--panel-2); border-radius: 6px;
     padding: 3px; border: 1px solid var(--border);
   }
   .template-btn {
-    padding: 7px 16px; border: none; background: transparent;
+    padding: 5px 10px; border: none; background: transparent;
     color: var(--muted); cursor: pointer; border-radius: 4px;
     font-size: 13px; font-weight: 500; transition: all .15s; font-family: inherit;
+    white-space: nowrap; line-height: 1.25;
   }
+  /* 尺寸在上、像素在下，六個規格才排得進一列 */
+  .template-btn small { display: block; font-size: 10px; opacity: .6; font-weight: 400; }
   .template-btn.active { background: var(--accent); color: #fff; }
   .template-btn:not(.active):hover { color: var(--text); }
 
@@ -45,6 +49,7 @@
     background: var(--panel-2); color: var(--text); cursor: pointer;
     font-size: 13px; font-weight: 500; transition: all .15s;
     font-family: inherit; display: inline-flex; align-items: center; gap: 6px;
+    white-space: nowrap;
   }
   .btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
   .btn:disabled { opacity: .4; cursor: not-allowed; }
@@ -62,7 +67,7 @@
   .logo-bar-title { font-size: 12px; color: var(--muted); letter-spacing: 1px; }
   .logo-slot {
     display: flex; align-items: center; gap: 8px;
-    height: 44px; min-width: 190px; padding: 4px 10px;
+    height: 44px; min-width: 170px; padding: 4px 10px;
     border: 2px dashed var(--border); border-radius: 6px;
     background: var(--panel-2); color: var(--muted);
     font-size: 12px; cursor: pointer; transition: all .15s;
@@ -77,9 +82,9 @@
   .logo-slot .logo-name {
     max-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .logo-bar .ctrl { padding: 6px 10px; gap: 8px; }
+  .logo-bar .ctrl { padding: 6px 8px; gap: 6px; }
   .logo-bar .ctrl-label { min-width: 0; }
-  .logo-bar .ctrl input[type=range] { width: 100px; }
+  .logo-bar .ctrl input[type=range] { width: 76px; }
   .logo-bar .ctrl input[type=number] {
     width: 54px; padding: 4px 6px; border-radius: 4px;
     border: 1px solid var(--border); background: var(--bg); color: var(--text);
@@ -90,7 +95,7 @@
   .logo-bar .unit { font-size: 12px; color: var(--muted); }
   .logo-bar.no-logo .ctrl { opacity: .45; }
 
-  .status { color: var(--muted); font-size: 12px; letter-spacing: .5px; }
+  .status { color: var(--muted); font-size: 12px; letter-spacing: .5px; white-space: nowrap; }
   .status b { color: var(--text); }
 
   main {
@@ -136,8 +141,10 @@
     cursor: pointer; position: relative;
     aspect-ratio: 5 / 7;
   }
+  .card.size-4x6 .thumb-wrap { aspect-ratio: 4 / 6; }
   .card.size-6x8 .thumb-wrap { aspect-ratio: 6 / 8; }
   .card.size-8x10 .thumb-wrap { aspect-ratio: 8 / 10; }
+  .card.size-8x12 .thumb-wrap { aspect-ratio: 8 / 12; }
   .card.size-10x10 .thumb-wrap { aspect-ratio: 1 / 1; }
   .card canvas { max-width: 100%; max-height: 100%; display: block; }
 
@@ -261,16 +268,19 @@
   <h1>相片裁切輸出系統 <span>/</span> PHOTO CROPPER</h1>
   <div class="toolbar">
     <div class="template-group">
-      <button class="template-btn active" data-template="5x7">5 × 7　<small style="opacity:.6">1500×2100</small></button>
-      <button class="template-btn" data-template="6x8">6 × 8　<small style="opacity:.6">1800×2400</small></button>
-      <button class="template-btn" data-template="8x10">8 × 10　<small style="opacity:.6">2400×3000</small></button>
-      <button class="template-btn" data-template="10x10">10 × 10　<small style="opacity:.6">3000×3000</small></button>
+      <button class="template-btn" data-template="4x6">4 × 6<small>1200×1800</small></button>
+      <button class="template-btn active" data-template="5x7">5 × 7<small>1500×2100</small></button>
+      <button class="template-btn" data-template="6x8">6 × 8<small>1800×2400</small></button>
+      <button class="template-btn" data-template="8x10">8 × 10<small>2400×3000</small></button>
+      <button class="template-btn" data-template="8x12">8 × 12<small>2400×3600</small></button>
+      <button class="template-btn" data-template="10x10">10 × 10<small>3000×3000</small></button>
     </div>
     <button class="btn" id="addBtn">+ 加入照片</button>
     <button class="btn danger-ghost" id="clearBtn" disabled>清空</button>
-    <div class="spacer"></div>
-    <div class="status">已載入 <b id="countLabel">0</b> 張</div>
-    <button class="btn primary" id="exportBtn" disabled>批次輸出 ZIP</button>
+    <div class="toolbar-end">
+      <div class="status">已載入 <b id="countLabel">0</b> 張</div>
+      <button class="btn primary" id="exportBtn" disabled>批次輸出 ZIP</button>
+    </div>
   </div>
 </header>
 
@@ -372,9 +382,11 @@
    angle: 順時針角度（度）
    ========================================================= */
 const TEMPLATES = {
+  '4x6': { w: 1200, h: 1800, label: '4×6' },
   '5x7': { w: 1500, h: 2100, label: '5×7' },
   '6x8': { w: 1800, h: 2400, label: '6×8' },
   '8x10': { w: 2400, h: 3000, label: '8×10' },
+  '8x12': { w: 2400, h: 3600, label: '8×12' },
   '10x10': { w: 3000, h: 3000, label: '10×10' }
 };
 
