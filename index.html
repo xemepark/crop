@@ -204,6 +204,7 @@
     height: min(65vh, 640px);
   }
   #cropCanvas { display: block; cursor: grab; touch-action: none; }
+  #cropCanvas.over-logo { cursor: move; }
   #cropCanvas.grabbing { cursor: grabbing; }
 
   .crop-controls {
@@ -339,11 +340,13 @@
         </div>
       </div>
       <div class="spacer"></div>
+      <button class="btn" id="resetLogoPosBtn" title="把這張照片的 Logo 放回共用設定的位置" hidden>Logo 歸位</button>
       <button class="btn" id="resetCropBtn">重置</button>
       <button class="btn primary" id="saveCropBtn">儲存裁切</button>
     </div>
     <div style="font-size:11px;color:var(--muted);padding:0 4px;">
       提示：照片會自動填滿裁切框（無論縮放或旋轉）。拖曳移動 · 滾輪縮放 · 角度任意調整。
+      <span id="logoHint" hidden>　Logo：直接拖曳可移動，點一下選取後可用方向鍵微調（按住 Shift 移動較快），只影響這張照片。</span>
     </div>
   </div>
 </div>
@@ -401,7 +404,9 @@ function shouldAutoRotate(photo) {
 function defaultCrop(photo) {
   // 橫式照片自動旋轉 90° 變直式
   const angle = shouldAutoRotate(photo) ? 90 : 0;
-  return { zoom: 1, offsetX: 0, offsetY: 0, angle };
+  // logoDX / logoDY：這張照片的 Logo 相對於共用位置的微調量
+  // （以裁切框短邊為 1 單位，方向是照片轉正來看的右與下）
+  return { zoom: 1, offsetX: 0, offsetY: 0, angle, logoDX: 0, logoDY: 0 };
 }
 
 function loadImage(file) {
@@ -428,7 +433,8 @@ function loadImage(file) {
      'thumb'  -> 裁切框 = 整個 canvas，不顯示框外
      'export' -> 裁切框 = 整個 canvas，不顯示框外；用於最終輸出
    ========================================================= */
-function drawPhoto(ctx, canvas, photo, tpl, mode) {
+function drawPhoto(ctx, canvas, photo, tpl, mode, logoOutline) {
+  let logoBox = null;
   const W = canvas.width;
   const H = canvas.height;
   const tplRatio = tpl.w / tpl.h;
@@ -548,7 +554,7 @@ function drawPhoto(ctx, canvas, photo, tpl, mode) {
     ctx.drawImage(photo.img, -drawW / 2, -drawH / 2, drawW, drawH);
     ctx.restore();
 
-    drawLogo(ctx, frameX, frameY, frameW, frameH, photo.crop.angle);
+    logoBox = drawLogo(ctx, frameX, frameY, frameW, frameH, photo, logoOutline);
 
     // 框外遮罩
     ctx.save();
@@ -601,40 +607,69 @@ function drawPhoto(ctx, canvas, photo, tpl, mode) {
     ctx.drawImage(photo.img, -drawW / 2, -drawH / 2, drawW, drawH);
     ctx.restore();
 
-    drawLogo(ctx, frameX, frameY, frameW, frameH, photo.crop.angle);
+    drawLogo(ctx, frameX, frameY, frameW, frameH, photo, null);
   }
 
-  return { frameX, frameY, frameW, frameH };
+  return { frameX, frameY, frameW, frameH, logoBox };
 }
 
-/* 畫上 Logo（預覽與輸出共用）
+/* Logo 的擺放計算（預覽、輸出、拖曳共用）
    Logo 會跟著照片的方向：照片被轉了 90° 時，Logo 也轉 90°，
    並落在「照片轉正來看時的右下角」。角度取最接近的 90° 倍數，
    所以微調幾度的水平校正不會讓 Logo 歪掉。
-   大小與邊距都以裁切框的短邊為基準，同一批直式、橫式照片印出來 Logo 一樣大。 */
-function drawLogo(ctx, frameX, frameY, frameW, frameH, angle) {
+   大小與邊距都以裁切框的短邊為基準，同一批直式、橫式照片印出來 Logo 一樣大。
+   回傳的 x / y 是「轉正後、以裁切框中心為原點」的座標。 */
+function logoPlacement(crop, frameW, frameH) {
   const logo = state.logo;
-  if (!logo.img || !logo.img.width || !logo.img.height) return;
-  const quarter = ((Math.round((angle || 0) / 90) % 4) + 4) % 4;
+  if (!logo.img || !logo.img.width || !logo.img.height) return null;
+  const quarter = ((Math.round((crop.angle || 0) / 90) % 4) + 4) % 4;
   const base = Math.min(frameW, frameH);
-  // 轉正後看到的畫面寬高
   const viewW = (quarter % 2) ? frameH : frameW;
   const viewH = (quarter % 2) ? frameW : frameH;
   const w = base * logo.size / 100;
   const h = w * logo.img.height / logo.img.width;
-  const x = viewW / 2 - base * logo.marginX / 100 - w;
-  const y = viewH / 2 - base * logo.marginY / 100 - h;
+  // 共用位置（右下角往內縮邊距）
+  const baseX = viewW / 2 - base * logo.marginX / 100 - w;
+  const baseY = viewH / 2 - base * logo.marginY / 100 - h;
+  // 加上這張照片自己的微調，並限制在裁切框內
+  const clampAxis = (v, half, size) => (size >= half * 2) ? v : clamp(v, -half, half - size);
+  const x = clampAxis(baseX + (crop.logoDX || 0) * base, viewW / 2, w);
+  const y = clampAxis(baseY + (crop.logoDY || 0) * base, viewH / 2, h);
+  return { quarter, base, w, h, x, y, baseX, baseY };
+}
+
+/* 畫上 Logo；回傳 Logo 在 canvas 上的外框（供裁切視窗點選、拖曳用） */
+function drawLogo(ctx, frameX, frameY, frameW, frameH, photo, outline) {
+  const pl = logoPlacement(photo.crop, frameW, frameH);
+  if (!pl) return null;
+  const cx = frameX + frameW / 2;
+  const cy = frameY + frameH / 2;
   ctx.save();
   ctx.beginPath();
   ctx.rect(frameX, frameY, frameW, frameH);
   ctx.clip();
-  ctx.translate(frameX + frameW / 2, frameY + frameH / 2);
-  ctx.rotate(quarter * Math.PI / 2);
-  ctx.globalAlpha = clamp(logo.opacity / 100, 0, 1);
+  ctx.translate(cx, cy);
+  ctx.rotate(pl.quarter * Math.PI / 2);
+  ctx.globalAlpha = clamp(state.logo.opacity / 100, 0, 1);
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(logo.img, x, y, w, h);
+  ctx.drawImage(state.logo.img, pl.x, pl.y, pl.w, pl.h);
+  if (outline) {
+    ctx.globalAlpha = 1;
+    ctx.setLineDash([5, 4]);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = outline === 'selected' ? '#f59e0b' : 'rgba(255,255,255,0.85)';
+    ctx.strokeRect(pl.x - 2, pl.y - 2, pl.w + 4, pl.h + 4);
+  }
   ctx.restore();
+
+  // 轉回 canvas 座標的外框（旋轉是 90° 的倍數，所以仍是水平矩形）
+  const cos = Math.round(Math.cos(pl.quarter * Math.PI / 2));
+  const sin = Math.round(Math.sin(pl.quarter * Math.PI / 2));
+  const pts = [[pl.x, pl.y], [pl.x + pl.w, pl.y + pl.h]].map(([px, py]) => [cx + px * cos - py * sin, cy + px * sin + py * cos]);
+  const bx = Math.min(pts[0][0], pts[1][0]);
+  const by = Math.min(pts[0][1], pts[1][1]);
+  return { x: bx, y: by, w: Math.abs(pts[0][0] - pts[1][0]), h: Math.abs(pts[0][1] - pts[1][1]), quarter: pl.quarter, base: pl.base };
 }
 
 /* ===================== DOM & 事件 ===================== */
@@ -925,6 +960,57 @@ const cropSubTitle = document.getElementById('cropSubTitle');
 let cropEditing = null;
 let cropEditingBackup = null;
 let lastFrame = null;  // 記錄 modal 當前的 frame 尺寸，用於拖曳正規化
+const resetLogoPosBtn = document.getElementById('resetLogoPosBtn');
+const logoHint = document.getElementById('logoHint');
+let logoSelected = false;  // 在裁切視窗中點選了 Logo（可用方向鍵微調）
+let logoHover = false;
+let logoDrag = null;
+
+function updateLogoModalUI() {
+  const has = !!state.logo.img;
+  logoHint.hidden = !has;
+  const moved = !!(cropEditing && (cropEditing.crop.logoDX || cropEditing.crop.logoDY));
+  resetLogoPosBtn.hidden = !has;
+  resetLogoPosBtn.disabled = !moved;
+}
+
+// 把 canvas 上的位移換算成這張照片 Logo 的微調量，並限制在裁切框內
+function moveLogoBy(dxCanvas, dyCanvas, startDX, startDY) {
+  if (!cropEditing || !lastFrame || !lastFrame.logoBox) return;
+  const crop = cropEditing.crop;
+  const q = lastFrame.logoBox.quarter;
+  const base = lastFrame.logoBox.base;
+  const cos = Math.round(Math.cos(q * Math.PI / 2));
+  const sin = Math.round(Math.sin(q * Math.PI / 2));
+  // canvas 位移逆旋轉回「照片轉正」的座標
+  const vx = dxCanvas * cos + dyCanvas * sin;
+  const vy = -dxCanvas * sin + dyCanvas * cos;
+  crop.logoDX = startDX + vx / base;
+  crop.logoDY = startDY + vy / base;
+  // 以實際可擺放的位置回寫，拖出邊界後往回拖才不會有空行程
+  const pl = logoPlacement(crop, lastFrame.frameW, lastFrame.frameH);
+  if (pl) {
+    crop.logoDX = (pl.x - pl.baseX) / pl.base;
+    crop.logoDY = (pl.y - pl.baseY) / pl.base;
+  }
+  renderCropCanvas();
+}
+
+function canvasPoint(e) {
+  const rect = cropCanvas.getBoundingClientRect();
+  return {
+    x: (e.clientX - rect.left) * cropCanvas.width / rect.width,
+    y: (e.clientY - rect.top) * cropCanvas.height / rect.height
+  };
+}
+
+function isOverLogo(e) {
+  const box = lastFrame && lastFrame.logoBox;
+  if (!box) return false;
+  const pt = canvasPoint(e);
+  const pad = 4;
+  return pt.x >= box.x - pad && pt.x <= box.x + box.w + pad && pt.y >= box.y - pad && pt.y <= box.y + box.h + pad;
+}
 
 function formatAngle(a) {
   const v = Math.round(a * 10) / 10;
@@ -936,6 +1022,9 @@ function openCropModal(photoId) {
   if (!photo) return;
   cropEditing = photo;
   cropEditingBackup = JSON.parse(JSON.stringify(photo.crop));
+  logoSelected = false;
+  logoHover = false;
+  logoDrag = null;
 
   zoomRange.value = photo.crop.zoom;
   zoomValue.textContent = Math.round(photo.crop.zoom * 100) + '%';
@@ -960,7 +1049,9 @@ function setupCropCanvas() {
 function renderCropCanvas() {
   if (!cropEditing) return;
   const ctx = cropCanvas.getContext('2d');
-  lastFrame = drawPhoto(ctx, cropCanvas, cropEditing, TEMPLATES[state.template], 'modal');
+  const outline = (logoSelected || logoDrag) ? 'selected' : (logoHover ? 'hover' : null);
+  lastFrame = drawPhoto(ctx, cropCanvas, cropEditing, TEMPLATES[state.template], 'modal', outline);
+  updateLogoModalUI();
 }
 
 /* 控制元件 */
@@ -995,6 +1086,15 @@ rotateRight90Btn.addEventListener('click', () => rotateBy(90));
 let dragStart = null;
 cropCanvas.addEventListener('mousedown', e => {
   if (!cropEditing) return;
+  if (isOverLogo(e)) {
+    // 點在 Logo 上：拖的是 Logo，不是照片
+    logoSelected = true;
+    logoDrag = { x: e.clientX, y: e.clientY, dx: cropEditing.crop.logoDX || 0, dy: cropEditing.crop.logoDY || 0 };
+    cropCanvas.classList.add('grabbing');
+    renderCropCanvas();
+    return;
+  }
+  if (logoSelected) { logoSelected = false; renderCropCanvas(); }
   dragStart = {
     x: e.clientX, y: e.clientY,
     ox: cropEditing.crop.offsetX, oy: cropEditing.crop.offsetY
@@ -1002,6 +1102,15 @@ cropCanvas.addEventListener('mousedown', e => {
   cropCanvas.classList.add('grabbing');
 });
 window.addEventListener('mousemove', e => {
+  if (logoDrag && cropEditing && lastFrame) {
+    const rect = cropCanvas.getBoundingClientRect();
+    moveLogoBy(
+      (e.clientX - logoDrag.x) * cropCanvas.width / rect.width,
+      (e.clientY - logoDrag.y) * cropCanvas.height / rect.height,
+      logoDrag.dx, logoDrag.dy
+    );
+    return;
+  }
   if (!dragStart || !cropEditing || !lastFrame) return;
   const rect = cropCanvas.getBoundingClientRect();
   const scaleX = cropCanvas.width / rect.width;
@@ -1015,7 +1124,29 @@ window.addEventListener('mousemove', e => {
 });
 window.addEventListener('mouseup', () => {
   dragStart = null;
+  if (logoDrag) { logoDrag = null; renderCropCanvas(); }
   cropCanvas.classList.remove('grabbing');
+});
+
+// 滑到 Logo 上時顯示外框與移動游標
+cropCanvas.addEventListener('mousemove', e => {
+  if (!cropEditing || dragStart || logoDrag) return;
+  const over = isOverLogo(e);
+  if (over !== logoHover) {
+    logoHover = over;
+    cropCanvas.classList.toggle('over-logo', over);
+    renderCropCanvas();
+  }
+});
+cropCanvas.addEventListener('mouseleave', () => {
+  if (logoHover) { logoHover = false; cropCanvas.classList.remove('over-logo'); renderCropCanvas(); }
+});
+
+resetLogoPosBtn.addEventListener('click', () => {
+  if (!cropEditing) return;
+  cropEditing.crop.logoDX = 0;
+  cropEditing.crop.logoDY = 0;
+  renderCropCanvas();
 });
 
 /* 滾輪縮放 */
@@ -1061,6 +1192,13 @@ window.addEventListener('keydown', e => {
   if (!cropModal.classList.contains('active')) return;
   if (e.key === 'Escape') closeCropBtn.click();
   else if (e.key === 'Enter') saveCropBtn.click();
+  else if (logoSelected && cropEditing && e.key.startsWith('Arrow') && !/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) {
+    // 方向鍵微調已選取的 Logo：每次 1 個畫面像素，按住 Shift 為 10
+    e.preventDefault();
+    const step = e.shiftKey ? 10 : 1;
+    const d = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
+    if (d) moveLogoBy(d[0], d[1], cropEditing.crop.logoDX || 0, cropEditing.crop.logoDY || 0);
+  }
 });
 
 /* ===================== 清空 ===================== */
