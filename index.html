@@ -100,6 +100,7 @@
     aspect-ratio: 5 / 7;
   }
   .card.size-6x8 .thumb-wrap { aspect-ratio: 6 / 8; }
+  .card.size-8x10 .thumb-wrap { aspect-ratio: 8 / 10; }
   .card canvas { max-width: 100%; max-height: 100%; display: block; }
 
   .card .meta {
@@ -222,6 +223,7 @@
     <div class="template-group">
       <button class="template-btn active" data-template="5x7">5 × 7　<small style="opacity:.6">1500×2100</small></button>
       <button class="template-btn" data-template="6x8">6 × 8　<small style="opacity:.6">1800×2400</small></button>
+      <button class="template-btn" data-template="8x10">8 × 10　<small style="opacity:.6">2400×3000</small></button>
     </div>
     <button class="btn" id="addBtn">+ 加入照片</button>
     <button class="btn danger-ghost" id="clearBtn" disabled>清空</button>
@@ -298,7 +300,8 @@
    ========================================================= */
 const TEMPLATES = {
   '5x7': { w: 1500, h: 2100, label: '5×7' },
-  '6x8': { w: 1800, h: 2400, label: '6×8' }
+  '6x8': { w: 1800, h: 2400, label: '6×8' },
+  '8x10': { w: 2400, h: 3000, label: '8×10' }
 };
 
 const state = {
