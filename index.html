@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
 <meta charset="UTF-8">
-<title>相片裁切輸出系統</title>
+<title>小日子相片裁切輸出系統</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
@@ -146,6 +146,7 @@
   .card.size-8x10 .thumb-wrap { aspect-ratio: 8 / 10; }
   .card.size-8x12 .thumb-wrap { aspect-ratio: 8 / 12; }
   .card.size-10x10 .thumb-wrap { aspect-ratio: 1 / 1; }
+  .card.size-12x12 .thumb-wrap { aspect-ratio: 1 / 1; }
   .card canvas { max-width: 100%; max-height: 100%; display: block; }
 
   .card .meta {
@@ -265,7 +266,7 @@
 <body>
 
 <header>
-  <h1>相片裁切輸出系統 <span>/</span> PHOTO CROPPER</h1>
+  <h1>小日子相片裁切輸出系統</h1>
   <div class="toolbar">
     <div class="template-group">
       <button class="template-btn" data-template="4x6">4 × 6<small>1200×1800</small></button>
@@ -274,6 +275,7 @@
       <button class="template-btn" data-template="8x10">8 × 10<small>2400×3000</small></button>
       <button class="template-btn" data-template="8x12">8 × 12<small>2400×3600</small></button>
       <button class="template-btn" data-template="10x10">10 × 10<small>3000×3000</small></button>
+      <button class="template-btn" data-template="12x12">12 × 12<small>3600×3600</small></button>
     </div>
     <button class="btn" id="addBtn">+ 加入照片</button>
     <button class="btn danger-ghost" id="clearBtn" disabled>清空</button>
@@ -387,7 +389,8 @@ const TEMPLATES = {
   '6x8': { w: 1800, h: 2400, label: '6×8' },
   '8x10': { w: 2400, h: 3000, label: '8×10' },
   '8x12': { w: 2400, h: 3600, label: '8×12' },
-  '10x10': { w: 3000, h: 3000, label: '10×10' }
+  '10x10': { w: 3000, h: 3000, label: '10×10' },
+  '12x12': { w: 3600, h: 3600, label: '12×12' }
 };
 
 const state = {
